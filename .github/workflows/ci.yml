@@ -49,6 +49,9 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
 
+      - name: Use compatible npm version
+        run: npm install --global npm@11.6.1
+
       - name: Install backend dependencies
         working-directory: server
         run: npm ci
