@@ -1,8 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   createContext,
-  ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -55,9 +55,10 @@ export function AuthProvider({
 
   const refreshUser = useCallback(async () => {
     try {
-      const response = await apiRequest<CurrentUserResponse>(
-        "/api/auth/me"
-      );
+      const response =
+        await apiRequest<CurrentUserResponse>(
+          "/api/auth/me"
+        );
 
       setUser(response.user);
     } catch {
@@ -66,23 +67,51 @@ export function AuthProvider({
   }, []);
 
   useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
-  }, [refreshUser]);
+    let ignore = false;
+
+    async function initializeAuth() {
+      try {
+        const response =
+          await apiRequest<CurrentUserResponse>(
+            "/api/auth/me"
+          );
+
+        if (!ignore) {
+          setUser(response.user);
+        }
+      } catch {
+        if (!ignore) {
+          setUser(null);
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void initializeAuth();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   async function login(
     email: string,
     password: string
   ): Promise<void> {
-    const response = await apiRequest<LoginResponse>(
-      "/api/auth/login",
-      {
-        method: "POST",
-        body: {
-          email,
-          password,
-        },
-      }
-    );
+    const response =
+      await apiRequest<LoginResponse>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: {
+            email,
+            password,
+          },
+        }
+      );
 
     setUser(response.user);
   }
