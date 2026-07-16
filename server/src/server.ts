@@ -1,12 +1,18 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
+import { rateLimit } from "express-rate-limit";
+import helmet from "helmet";
 import { testDatabaseConnection } from "./lib/db";
+import authRoutes from "./routes/auth.routes";
 
 dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
+
+app.use(helmet());
 
 app.use(
   cors({
@@ -16,6 +22,20 @@ app.use(
 );
 
 app.use(express.json());
+app.use(cookieParser());
+
+const authenticationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts. Please try again later.",
+  },
+});
+
+app.use("/api/auth", authenticationLimiter, authRoutes);
 
 app.get("/api/health", (_request: Request, response: Response) => {
   response.status(200).json({
