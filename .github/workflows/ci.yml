@@ -50,7 +50,10 @@ jobs:
           cache-dependency-path: server/package-lock.json
 
       - name: Use compatible npm version
-        run: npm install --global npm@11.6.1
+        run: npm install --global npm@11.6.1 --no-audit --no-fund
+
+      - name: Display npm version
+        run: npm --version
 
       - name: Install backend dependencies
         working-directory: server
@@ -69,7 +72,7 @@ jobs:
         run: npm run build
 
   frontend:
-    name: Frontend build
+    name: Frontend lint and build
     runs-on: ubuntu-latest
 
     env:
@@ -89,6 +92,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: web
         run: npm ci
+
+      - name: Run frontend lint
+        working-directory: web
+        run: npm run lint
 
       - name: Build frontend
         working-directory: web
