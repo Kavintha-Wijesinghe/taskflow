@@ -143,8 +143,6 @@ export default function TasksPage() {
 
   const loadTasks = useCallback(async () => {
     try {
-      setLoadingTasks(true);
-
       const response =
         await apiRequest<TasksResponse>("/api/tasks");
 
@@ -160,27 +158,6 @@ export default function TasksPage() {
     }
   }, []);
 
-  const loadTaskReferences = useCallback(async () => {
-    try {
-      const [projectsResponse, membersResponse] =
-        await Promise.all([
-          apiRequest<ProjectsResponse>("/api/projects"),
-          apiRequest<UsersResponse>(
-            "/api/projects/team-members"
-          ),
-        ]);
-
-      setProjects(projectsResponse.projects);
-      setTeamMembers(membersResponse.users);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load task form information"
-      );
-    }
-  }, []);
-
   useEffect(() => {
     if (loading) {
       return;
@@ -190,22 +167,67 @@ export default function TasksPage() {
       router.replace("/login");
       return;
     }
+    const authenticatedUser = user;
+    let ignore = false;
 
-    void loadTasks();
+    async function initializeTasksPage() {
+      try {
+        const tasksRequest =
+          apiRequest<TasksResponse>("/api/tasks");
 
-    if (
-      user.role === "ADMIN" ||
-      user.role === "PROJECT_MANAGER"
-    ) {
-      void loadTaskReferences();
+        const referencesRequest =
+          authenticatedUser.role === "ADMIN" ||
+          authenticatedUser.role === "PROJECT_MANAGER"
+            ? Promise.all([
+                apiRequest<ProjectsResponse>("/api/projects"),
+                apiRequest<UsersResponse>(
+                  "/api/projects/team-members"
+                ),
+              ])
+            : Promise.resolve(null);
+
+        const [tasksResponse, referencesResponse] =
+          await Promise.all([
+            tasksRequest,
+            referencesRequest,
+          ]);
+
+        if (ignore) {
+          return;
+        }
+
+        setTasks(tasksResponse.tasks);
+
+        if (referencesResponse) {
+          const [
+            projectsResponse,
+            membersResponse,
+          ] = referencesResponse;
+
+          setProjects(projectsResponse.projects);
+          setTeamMembers(membersResponse.users);
+        }
+      } catch (requestError) {
+        if (!ignore) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load task information"
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setLoadingTasks(false);
+        }
+      }
     }
-  }, [
-    loading,
-    user,
-    router,
-    loadTasks,
-    loadTaskReferences,
-  ]);
+
+    void initializeTasksPage();
+
+    return () => {
+      ignore = true;
+    };
+  }, [loading, user, router]);
 
   async function handleCreateTask(
     event: FormEvent<HTMLFormElement>

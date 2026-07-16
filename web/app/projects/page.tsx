@@ -79,12 +79,14 @@ export default function ProjectsPage() {
 
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [assigningProjectId, setAssigningProjectId] = useState<string | null>(
-    null
-  );
-  const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(
-    null
-  );
+
+  const [assigningProjectId, setAssigningProjectId] = useState<
+    string | null
+  >(null);
+
+  const [updatingProjectId, setUpdatingProjectId] = useState<
+    string | null
+  >(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -105,13 +107,14 @@ export default function ProjectsPage() {
   const [success, setSuccess] = useState("");
 
   const canManageProjects =
-    user?.role === "ADMIN" || user?.role === "PROJECT_MANAGER";
+    user?.role === "ADMIN" ||
+    user?.role === "PROJECT_MANAGER";
 
   const loadProjects = useCallback(async () => {
     try {
-      setLoadingProjects(true);
+      const response =
+        await apiRequest<ProjectsResponse>("/api/projects");
 
-      const response = await apiRequest<ProjectsResponse>("/api/projects");
       setProjects(response.projects);
     } catch (requestError) {
       setError(
@@ -124,43 +127,6 @@ export default function ProjectsPage() {
     }
   }, []);
 
-  const loadManagers = useCallback(async () => {
-    try {
-      const response = await apiRequest<UsersResponse>("/api/users");
-
-      const availableManagers = response.users.filter(
-        (systemUser) =>
-          systemUser.status === "ACTIVE" &&
-          (systemUser.role === "ADMIN" ||
-            systemUser.role === "PROJECT_MANAGER")
-      );
-
-      setManagers(availableManagers);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load project managers"
-      );
-    }
-  }, []);
-
-  const loadTeamMembers = useCallback(async () => {
-    try {
-      const response = await apiRequest<UsersResponse>(
-        "/api/projects/team-members"
-      );
-
-      setTeamMembers(response.users);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load team members"
-      );
-    }
-  }, []);
-
   useEffect(() => {
     if (loading) {
       return;
@@ -170,26 +136,83 @@ export default function ProjectsPage() {
       router.replace("/login");
       return;
     }
+    const authenticatedUser = user;
+    let ignore = false;
 
-    void loadProjects();
+    async function initializeProjectsPage() {
+      try {
+        const projectsRequest =
+          apiRequest<ProjectsResponse>("/api/projects");
 
-    if (user.role === "ADMIN") {
-      void loadManagers();
+        const managersRequest =
+          authenticatedUser.role === "ADMIN"
+            ? apiRequest<UsersResponse>("/api/users")
+            : Promise.resolve<UsersResponse | null>(null);
+
+        const teamMembersRequest =
+          authenticatedUser.role === "ADMIN" ||
+          authenticatedUser.role === "PROJECT_MANAGER"
+            ? apiRequest<UsersResponse>(
+                "/api/projects/team-members"
+              )
+            : Promise.resolve<UsersResponse | null>(null);
+
+        const [
+          projectsResponse,
+          managersResponse,
+          teamMembersResponse,
+        ] = await Promise.all([
+          projectsRequest,
+          managersRequest,
+          teamMembersRequest,
+        ]);
+
+        if (ignore) {
+          return;
+        }
+
+        setProjects(projectsResponse.projects);
+
+        if (managersResponse) {
+          const availableManagers =
+            managersResponse.users.filter(
+              (systemUser) =>
+                systemUser.status === "ACTIVE" &&
+                (systemUser.role === "ADMIN" ||
+                  systemUser.role === "PROJECT_MANAGER")
+            );
+
+          setManagers(availableManagers);
+        }
+
+        if (teamMembersResponse) {
+          setTeamMembers(teamMembersResponse.users);
+        }
+      } catch (requestError) {
+        if (!ignore) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load project information"
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setLoadingProjects(false);
+        }
+      }
     }
 
-    if (user.role === "ADMIN" || user.role === "PROJECT_MANAGER") {
-      void loadTeamMembers();
-    }
-  }, [
-    loading,
-    user,
-    router,
-    loadProjects,
-    loadManagers,
-    loadTeamMembers,
-  ]);
+    void initializeProjectsPage();
 
-  async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
+    return () => {
+      ignore = true;
+    };
+  }, [loading, user, router]);
+
+  async function handleCreateProject(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     if (!user || !canManageProjects) {
@@ -203,7 +226,9 @@ export default function ProjectsPage() {
     }
 
     if (startDate && dueDate && dueDate < startDate) {
-      setError("The due date cannot be earlier than the start date.");
+      setError(
+        "The due date cannot be earlier than the start date."
+      );
       setSuccess("");
       return;
     }
@@ -269,7 +294,9 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleUpdateProjectStatus(project: Project) {
+  async function handleUpdateProjectStatus(
+    project: Project
+  ) {
     const nextStatus =
       projectStatusUpdates[project.id] ?? project.status;
 
@@ -303,7 +330,10 @@ export default function ProjectsPage() {
         return updatedValues;
       });
 
-      setSuccess(`${project.name} was updated successfully.`);
+      setSuccess(
+        `${project.name} was updated successfully.`
+      );
+
       await loadProjects();
     } catch (requestError) {
       setError(
@@ -443,7 +473,9 @@ export default function ProjectsPage() {
                   minLength={2}
                   maxLength={120}
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) =>
+                    setName(event.target.value)
+                  }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                   placeholder="Enter project name"
                 />
@@ -461,15 +493,19 @@ export default function ProjectsPage() {
                   id="status"
                   value={status}
                   onChange={(event) =>
-                    setStatus(event.target.value as ProjectStatus)
+                    setStatus(
+                      event.target.value as ProjectStatus
+                    )
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                 >
-                  {Object.entries(statusLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
+                  {Object.entries(statusLabels).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
@@ -486,13 +522,20 @@ export default function ProjectsPage() {
                     id="manager"
                     required
                     value={managerId}
-                    onChange={(event) => setManagerId(event.target.value)}
+                    onChange={(event) =>
+                      setManagerId(event.target.value)
+                    }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                   >
-                    <option value="">Select a project manager</option>
+                    <option value="">
+                      Select a project manager
+                    </option>
 
                     {managers.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
+                      <option
+                        key={manager.id}
+                        value={manager.id}
+                      >
                         {manager.name} — {manager.email}
                       </option>
                     ))}
@@ -502,8 +545,8 @@ export default function ProjectsPage() {
 
               {user.role === "PROJECT_MANAGER" && (
                 <div className="md:col-span-2 rounded-lg bg-blue-50 p-4 text-sm text-blue-700">
-                  You will automatically be assigned as the manager of this
-                  project.
+                  You will automatically be assigned as the
+                  manager of this project.
                 </div>
               )}
 
@@ -519,7 +562,9 @@ export default function ProjectsPage() {
                   id="startDate"
                   type="date"
                   value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
+                  onChange={(event) =>
+                    setStartDate(event.target.value)
+                  }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                 />
               </div>
@@ -537,7 +582,9 @@ export default function ProjectsPage() {
                   type="date"
                   min={startDate || undefined}
                   value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
+                  onChange={(event) =>
+                    setDueDate(event.target.value)
+                  }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                 />
               </div>
@@ -555,7 +602,9 @@ export default function ProjectsPage() {
                   rows={4}
                   maxLength={1000}
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  onChange={(event) =>
+                    setDescription(event.target.value)
+                  }
                   className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
                   placeholder="Describe the project"
                 />
@@ -567,7 +616,9 @@ export default function ProjectsPage() {
               disabled={submitting}
               className="mt-6 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Creating..." : "Create project"}
+              {submitting
+                ? "Creating..."
+                : "Create project"}
             </button>
           </form>
         )}
@@ -583,7 +634,9 @@ export default function ProjectsPage() {
         </div>
 
         {loadingProjects ? (
-          <p className="text-slate-600">Loading projects...</p>
+          <p className="text-slate-600">
+            Loading projects...
+          </p>
         ) : projects.length === 0 ? (
           <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900">
@@ -591,7 +644,8 @@ export default function ProjectsPage() {
             </h2>
 
             <p className="mt-2 text-slate-500">
-              There are no projects available for your account.
+              There are no projects available for your
+              account.
             </p>
           </div>
         ) : (
@@ -622,12 +676,15 @@ export default function ProjectsPage() {
                 </div>
 
                 <p className="mt-5 text-sm text-slate-600">
-                  {project.description || "No description provided."}
+                  {project.description ||
+                    "No description provided."}
                 </p>
 
                 <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-slate-500">Start date</p>
+                    <p className="text-slate-500">
+                      Start date
+                    </p>
 
                     <p className="mt-1 font-medium text-slate-900">
                       {formatDate(project.start_date)}
@@ -635,7 +692,9 @@ export default function ProjectsPage() {
                   </div>
 
                   <div>
-                    <p className="text-slate-500">Due date</p>
+                    <p className="text-slate-500">
+                      Due date
+                    </p>
 
                     <p className="mt-1 font-medium text-slate-900">
                       {formatDate(project.due_date)}
@@ -656,17 +715,23 @@ export default function ProjectsPage() {
                           project.status
                         }
                         onChange={(event) =>
-                          setProjectStatusUpdates((currentValues) => ({
-                            ...currentValues,
-                            [project.id]:
-                              event.target.value as ProjectStatus,
-                          }))
+                          setProjectStatusUpdates(
+                            (currentValues) => ({
+                              ...currentValues,
+                              [project.id]:
+                                event.target
+                                  .value as ProjectStatus,
+                            })
+                          )
                         }
                         className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500"
                       >
                         {Object.entries(statusLabels).map(
                           ([value, label]) => (
-                            <option key={value} value={value}>
+                            <option
+                              key={value}
+                              value={value}
+                            >
                               {label}
                             </option>
                           )
@@ -701,30 +766,40 @@ export default function ProjectsPage() {
 
                     <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                       <select
-                        value={selectedMemberIds[project.id] || ""}
+                        value={
+                          selectedMemberIds[project.id] || ""
+                        }
                         onChange={(event) =>
-                          setSelectedMemberIds((currentValues) => ({
-                            ...currentValues,
-                            [project.id]: event.target.value,
-                          }))
+                          setSelectedMemberIds(
+                            (currentValues) => ({
+                              ...currentValues,
+                              [project.id]:
+                                event.target.value,
+                            })
+                          )
                         }
                         className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500"
                       >
-                        <option value="">Select a team member</option>
+                        <option value="">
+                          Select a team member
+                        </option>
 
                         {teamMembers.map((teamMember) => (
                           <option
                             key={teamMember.id}
                             value={teamMember.id}
                           >
-                            {teamMember.name} — {teamMember.email}
+                            {teamMember.name} —{" "}
+                            {teamMember.email}
                           </option>
                         ))}
                       </select>
 
                       <button
                         type="button"
-                        onClick={() => handleAssignMember(project.id)}
+                        onClick={() =>
+                          handleAssignMember(project.id)
+                        }
                         disabled={
                           assigningProjectId === project.id ||
                           !selectedMemberIds[project.id]

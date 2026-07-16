@@ -125,8 +125,50 @@ export default function UsersPage() {
       return;
     }
 
-    void loadUsers();
-  }, [loading, user, router, loadUsers]);
+    let ignore = false;
+
+    async function initializeUsersPage() {
+      try {
+        const response =
+          await apiRequest<UsersResponse>("/api/users");
+
+        if (ignore) {
+          return;
+        }
+
+        const initialRoles: Record<string, UserRole> = {};
+        const initialStatuses: Record<string, UserStatus> = {};
+
+        response.users.forEach((systemUser) => {
+          initialRoles[systemUser.id] = systemUser.role;
+          initialStatuses[systemUser.id] =
+            systemUser.status;
+        });
+
+        setUsers(response.users);
+        setRoleUpdates(initialRoles);
+        setStatusUpdates(initialStatuses);
+      } catch (requestError) {
+        if (!ignore) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load users"
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setLoadingUsers(false);
+        }
+      }
+    }
+
+    void initializeUsersPage();
+
+    return () => {
+      ignore = true;
+    };
+  }, [loading, user, router]);
 
   async function handleCreateUser(
     event: FormEvent<HTMLFormElement>
