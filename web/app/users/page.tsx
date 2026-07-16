@@ -1,33 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  useAuth,
-  UserRole,
-} from "@/components/auth-provider";
+import { useAuth } from "@/components/auth-provider";
 import { apiRequest } from "@/lib/api";
 
-interface ManagedUser {
+type UserRole = "ADMIN" | "PROJECT_MANAGER" | "TEAM_MEMBER";
+type UserStatus = "ACTIVE" | "INACTIVE";
+
+interface SystemUser {
   id: string;
   name: string;
   email: string;
   role: UserRole;
-  status: "ACTIVE" | "INACTIVE";
-  created_at: string;
-  updated_at: string;
+  status: UserStatus;
+  created_at?: string;
 }
 
 interface UsersResponse {
   success: boolean;
-  users: ManagedUser[];
+  users: SystemUser[];
 }
 
-interface CreateUserResponse {
+interface ActionResponse {
   success: boolean;
-  message: string;
-  user: ManagedUser;
+  message?: string;
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -36,20 +35,80 @@ const roleLabels: Record<UserRole, string> = {
   TEAM_MEMBER: "Team Member",
 };
 
+const statusLabels: Record<UserStatus, string> = {
+  ACTIVE: "Active",
+  INACTIVE: "Inactive",
+};
+
+function formatDate(date?: string) {
+  if (!date) {
+    return "Not available";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(date));
+}
+
 export default function UsersPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
 
-  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [users, setUsers] = useState<SystemUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(
+    null
+  );
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>("TEAM_MEMBER");
-  const [creating, setCreating] = useState(false);
+  const [newUserRole, setNewUserRole] =
+    useState<UserRole>("TEAM_MEMBER");
+
+  const [roleUpdates, setRoleUpdates] = useState<
+    Record<string, UserRole>
+  >({});
+
+  const [statusUpdates, setStatusUpdates] = useState<
+    Record<string, UserStatus>
+  >({});
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const loadUsers = useCallback(async () => {
+    try {
+      setLoadingUsers(true);
+
+      const response =
+        await apiRequest<UsersResponse>("/api/users");
+
+      setUsers(response.users);
+
+      const initialRoles: Record<string, UserRole> = {};
+      const initialStatuses: Record<string, UserStatus> = {};
+
+      response.users.forEach((systemUser) => {
+        initialRoles[systemUser.id] = systemUser.role;
+        initialStatuses[systemUser.id] = systemUser.status;
+      });
+
+      setRoleUpdates(initialRoles);
+      setStatusUpdates(initialStatuses);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load users"
+      );
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (loading) {
@@ -66,59 +125,39 @@ export default function UsersPage() {
       return;
     }
 
-    async function loadUsers() {
-      try {
-        const response = await apiRequest<UsersResponse>(
-          "/api/users"
-        );
-
-        setUsers(response.users);
-      } catch (requestError) {
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load users"
-        );
-      } finally {
-        setLoadingUsers(false);
-      }
-    }
-
-    loadUsers();
-  }, [loading, user, router]);
+    void loadUsers();
+  }, [loading, user, router, loadUsers]);
 
   async function handleCreateUser(
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
+
+    setCreatingUser(true);
     setError("");
-    setSuccessMessage("");
-    setCreating(true);
+    setSuccess("");
 
     try {
-      const response = await apiRequest<CreateUserResponse>(
-        "/api/users",
-        {
-          method: "POST",
-          body: {
-            name,
-            email,
-            password,
-            role,
-          },
-        }
-      );
-
-      setUsers((currentUsers) => [
-        response.user,
-        ...currentUsers,
-      ]);
+      await apiRequest<ActionResponse>("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role: newUserRole,
+        }),
+      });
 
       setName("");
       setEmail("");
       setPassword("");
-      setRole("TEAM_MEMBER");
-      setSuccessMessage(response.message);
+      setNewUserRole("TEAM_MEMBER");
+      setSuccess("User created successfully.");
+
+      await loadUsers();
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -126,7 +165,66 @@ export default function UsersPage() {
           : "Unable to create user"
       );
     } finally {
-      setCreating(false);
+      setCreatingUser(false);
+    }
+  }
+
+  async function handleUpdateUser(systemUser: SystemUser) {
+    const selectedRole =
+      roleUpdates[systemUser.id] ?? systemUser.role;
+
+    const selectedStatus =
+      statusUpdates[systemUser.id] ?? systemUser.status;
+
+    if (
+      selectedRole === systemUser.role &&
+      selectedStatus === systemUser.status
+    ) {
+      setError("Change the role or account status before updating.");
+      setSuccess("");
+      return;
+    }
+
+    setUpdatingUserId(systemUser.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      await apiRequest<ActionResponse>(
+        `/api/users/${systemUser.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            role: selectedRole,
+            status: selectedStatus,
+          }),
+        }
+      );
+
+      setSuccess(`${systemUser.name} was updated successfully.`);
+
+      await loadUsers();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to update user"
+      );
+
+      setRoleUpdates((currentValues) => ({
+        ...currentValues,
+        [systemUser.id]: systemUser.role,
+      }));
+
+      setStatusUpdates((currentValues) => ({
+        ...currentValues,
+        [systemUser.id]: systemUser.status,
+      }));
+    } finally {
+      setUpdatingUserId(null);
     }
   }
 
@@ -144,11 +242,11 @@ export default function UsersPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">
-              User Management
+              User management
             </h1>
 
             <p className="text-sm text-slate-500">
-              Manage users, roles, and account access
+              Create users and manage roles and account access
             </p>
           </div>
 
@@ -161,28 +259,34 @@ export default function UsersPage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl space-y-8 px-6 py-8">
+      <section className="mx-auto max-w-6xl px-6 py-8">
         {error && (
-          <p className="rounded-lg bg-red-50 p-4 text-red-700">
+          <p className="mb-6 rounded-lg bg-red-50 p-4 text-red-700">
             {error}
           </p>
         )}
 
-        {successMessage && (
-          <p className="rounded-lg bg-green-50 p-4 text-green-700">
-            {successMessage}
+        {success && (
+          <p className="mb-6 rounded-lg bg-green-50 p-4 text-green-700">
+            {success}
           </p>
         )}
 
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Create user
-          </h2>
+        <form
+          onSubmit={handleCreateUser}
+          className="mb-8 rounded-2xl bg-white p-6 shadow-sm"
+        >
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold text-slate-900">
+              Create user
+            </h2>
 
-          <form
-            onSubmit={handleCreateUser}
-            className="mt-6 grid gap-5 md:grid-cols-2"
-          >
+            <p className="mt-1 text-sm text-slate-500">
+              Add a new user and select their initial role.
+            </p>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
             <div>
               <label
                 htmlFor="name"
@@ -193,11 +297,14 @@ export default function UsersPage() {
 
               <input
                 id="name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                type="text"
                 required
                 minLength={2}
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
+                maxLength={100}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
+                placeholder="Enter full name"
               />
             </div>
 
@@ -212,10 +319,11 @@ export default function UsersPage() {
               <input
                 id="email"
                 type="email"
+                required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                required
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
+                placeholder="user@example.com"
               />
             </div>
 
@@ -224,126 +332,211 @@ export default function UsersPage() {
                 htmlFor="password"
                 className="mb-2 block text-sm font-medium text-slate-700"
               >
-                Password
+                Temporary password
               </label>
 
               <input
                 id="password"
                 type="password"
-                value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
                 required
                 minLength={8}
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
+                placeholder="Minimum 8 characters"
               />
             </div>
 
             <div>
               <label
-                htmlFor="role"
+                htmlFor="new-user-role"
                 className="mb-2 block text-sm font-medium text-slate-700"
               >
                 Role
               </label>
 
               <select
-                id="role"
-                value={role}
+                id="new-user-role"
+                value={newUserRole}
                 onChange={(event) =>
-                  setRole(event.target.value as UserRole)
+                  setNewUserRole(event.target.value as UserRole)
                 }
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-500"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-blue-500"
               >
-                <option value="TEAM_MEMBER">
-                  Team Member
-                </option>
-                <option value="PROJECT_MANAGER">
-                  Project Manager
-                </option>
-                <option value="ADMIN">
-                  Administrator
-                </option>
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </div>
-
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                disabled={creating}
-                className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {creating ? "Creating..." : "Create user"}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-5">
-            <h2 className="text-lg font-semibold text-slate-900">
-              System users
-            </h2>
           </div>
 
-          {loadingUsers ? (
-            <p className="p-6 text-slate-600">
-              Loading users...
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-sm text-slate-600">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 font-medium">
-                      Email
-                    </th>
-                    <th className="px-6 py-3 font-medium">
-                      Role
-                    </th>
-                    <th className="px-6 py-3 font-medium">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
+          <button
+            type="submit"
+            disabled={creatingUser}
+            className="mt-6 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creatingUser ? "Creating..." : "Create user"}
+          </button>
+        </form>
 
-                <tbody className="divide-y divide-slate-200">
-                  {users.map((managedUser) => (
-                    <tr key={managedUser.id}>
-                      <td className="px-6 py-4 font-medium text-slate-900">
-                        {managedUser.name}
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold text-slate-900">
+            System users
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Update user roles and activate or deactivate accounts.
+          </p>
+        </div>
+
+        {loadingUsers ? (
+          <p className="text-slate-600">Loading users...</p>
+        ) : users.length === 0 ? (
+          <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-900">
+              No users found
+            </h3>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-sm">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    User
+                  </th>
+
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Role
+                  </th>
+
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Status
+                  </th>
+
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Created
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200">
+                {users.map((systemUser) => {
+                  const selectedRole =
+                    roleUpdates[systemUser.id] ?? systemUser.role;
+
+                  const selectedStatus =
+                    statusUpdates[systemUser.id] ??
+                    systemUser.status;
+
+                  const hasChanges =
+                    selectedRole !== systemUser.role ||
+                    selectedStatus !== systemUser.status;
+
+                  const isCurrentUser = systemUser.id === user.id;
+
+                  return (
+                    <tr key={systemUser.id}>
+                      <td className="whitespace-nowrap px-5 py-4">
+                        <p className="font-medium text-slate-900">
+                          {systemUser.name}
+                          {isCurrentUser && (
+                            <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                              You
+                            </span>
+                          )}
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                          {systemUser.email}
+                        </p>
                       </td>
 
-                      <td className="px-6 py-4 text-slate-600">
-                        {managedUser.email}
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-600">
-                        {roleLabels[managedUser.role]}
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span
-                          className={
-                            managedUser.status === "ACTIVE"
-                              ? "rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700"
-                              : "rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700"
+                      <td className="whitespace-nowrap px-5 py-4">
+                        <select
+                          value={selectedRole}
+                          onChange={(event) =>
+                            setRoleUpdates((currentValues) => ({
+                              ...currentValues,
+                              [systemUser.id]:
+                                event.target.value as UserRole,
+                            }))
                           }
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500"
                         >
-                          {managedUser.status}
-                        </span>
+                          {Object.entries(roleLabels).map(
+                            ([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </td>
+
+                      <td className="whitespace-nowrap px-5 py-4">
+                        <select
+                          value={selectedStatus}
+                          disabled={isCurrentUser}
+                          onChange={(event) =>
+                            setStatusUpdates((currentValues) => ({
+                              ...currentValues,
+                              [systemUser.id]:
+                                event.target.value as UserStatus,
+                            }))
+                          }
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                        >
+                          {Object.entries(statusLabels).map(
+                            ([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            )
+                          )}
+                        </select>
+
+                        {isCurrentUser && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            Your own account cannot be deactivated.
+                          </p>
+                        )}
+                      </td>
+
+                      <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">
+                        {formatDate(systemUser.created_at)}
+                      </td>
+
+                      <td className="whitespace-nowrap px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUpdateUser(systemUser)
+                          }
+                          disabled={
+                            updatingUserId === systemUser.id ||
+                            !hasChanges
+                          }
+                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {updatingUserId === systemUser.id
+                            ? "Updating..."
+                            : "Update"}
+                        </button>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </main>
   );
