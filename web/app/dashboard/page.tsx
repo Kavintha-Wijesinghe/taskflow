@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import Link from "next/link";
 
 const roleLabels = {
   ADMIN: "Administrator",
@@ -86,17 +87,19 @@ export default function DashboardPage() {
                 View assigned tasks and update progress.
               </p>
             </div>
-
             {user.role === "ADMIN" && (
-              <div className="rounded-xl border border-slate-200 p-5">
+              <Link
+                href="/users"
+                className="rounded-xl border border-slate-200 p-5 hover:border-blue-400 hover:bg-blue-50"
+              >
                 <h3 className="font-semibold text-slate-900">
                   Users
                 </h3>
                 <p className="mt-2 text-sm text-slate-500">
                   Manage users, roles, and account access.
                 </p>
-              </div>
-            )}
+              </Link>
+            )}            
           </div>
         </div>
       </section>
