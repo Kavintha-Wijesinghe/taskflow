@@ -1,88 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
-import { apiRequest } from "@/lib/api";
 
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  status:
-    | "PLANNING"
-    | "ACTIVE"
-    | "ON_HOLD"
-    | "COMPLETED"
-    | "CANCELLED";
-  start_date: string | null;
-  due_date: string | null;
-  manager_id: string;
-  manager_name: string;
-  manager_email: string;
-}
-
-interface ProjectsResponse {
-  success: boolean;
-  projects: Project[];
-}
-
-const statusLabels: Record<Project["status"], string> = {
-  PLANNING: "Planning",
-  ACTIVE: "Active",
-  ON_HOLD: "On Hold",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
+const roleLabels = {
+  ADMIN: "Administrator",
+  PROJECT_MANAGER: "Project Manager",
+  TEAM_MEMBER: "Team Member",
 };
 
-function formatDate(date: string | null) {
-  if (!date) {
-    return "Not set";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(date));
-}
-
-export default function ProjectsPage() {
+export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
-
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [error, setError] = useState("");
+  const { user, loading, logout } = useAuth();
 
   useEffect(() => {
-    if (loading) {
-      return;
-    }
-
-    if (!user) {
+    if (!loading && !user) {
       router.replace("/login");
-      return;
     }
-
-    async function loadProjects() {
-      try {
-        const response = await apiRequest<ProjectsResponse>("/api/projects");
-        setProjects(response.projects);
-      } catch (requestError) {
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load projects"
-        );
-      } finally {
-        setLoadingProjects(false);
-      }
-    }
-
-    loadProjects();
   }, [loading, user, router]);
+
+  async function handleLogout() {
+    await logout();
+    router.replace("/login");
+  }
 
   if (loading || !user) {
     return (
@@ -97,89 +39,82 @@ export default function ProjectsPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Projects</h1>
+            <h1 className="text-2xl font-bold text-slate-900">
+              TaskFlow
+            </h1>
 
             <p className="text-sm text-slate-500">
-              View and manage project information
+              Project and Team Task Management Platform
             </p>
           </div>
 
-          <Link
-            href="/dashboard"
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
           >
-            Back to dashboard
-          </Link>
+            Logout
+          </button>
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-8">
-        {error && (
-          <p className="mb-6 rounded-lg bg-red-50 p-4 text-red-700">
-            {error}
+      <section className="mx-auto max-w-6xl px-6 py-10">
+        <div className="rounded-2xl bg-white p-8 shadow-sm">
+          <p className="text-sm font-medium text-blue-600">
+            {roleLabels[user.role]}
           </p>
-        )}
 
-        {loadingProjects ? (
-          <p className="text-slate-600">Loading projects...</p>
-        ) : projects.length === 0 ? (
-          <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">
-              No projects found
-            </h2>
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            Welcome, {user.name}
+          </h2>
 
-            <p className="mt-2 text-slate-500">
-              There are no projects available for your account.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2">
-            {projects.map((project) => (
-              <article
-                key={project.id}
-                className="rounded-2xl bg-white p-6 shadow-sm"
+          <p className="mt-2 text-slate-600">
+            {user.email}
+          </p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Link
+              href="/projects"
+              className="rounded-xl border border-slate-200 p-5 transition hover:border-blue-400 hover:bg-blue-50"
+            >
+              <h3 className="font-semibold text-slate-900">
+                Projects
+              </h3>
+
+              <p className="mt-2 text-sm text-slate-500">
+                View and manage project information.
+              </p>
+            </Link>
+
+            <Link
+              href="/tasks"
+              className="rounded-xl border border-slate-200 p-5 transition hover:border-blue-400 hover:bg-blue-50"
+            >
+              <h3 className="font-semibold text-slate-900">
+                Tasks
+              </h3>
+
+              <p className="mt-2 text-sm text-slate-500">
+                View assigned tasks and update progress.
+              </p>
+            </Link>
+
+            {user.role === "ADMIN" && (
+              <Link
+                href="/users"
+                className="rounded-xl border border-slate-200 p-5 transition hover:border-blue-400 hover:bg-blue-50"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-slate-900">
-                      {project.name}
-                    </h2>
+                <h3 className="font-semibold text-slate-900">
+                  Users
+                </h3>
 
-                    <p className="mt-1 text-sm text-slate-500">
-                      Manager: {project.manager_name}
-                    </p>
-                  </div>
-
-                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                    {statusLabels[project.status]}
-                  </span>
-                </div>
-
-                <p className="mt-5 text-sm text-slate-600">
-                  {project.description || "No description provided."}
+                <p className="mt-2 text-sm text-slate-500">
+                  Manage users, roles, and account access.
                 </p>
-
-                <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-slate-500">Start date</p>
-
-                    <p className="mt-1 font-medium text-slate-900">
-                      {formatDate(project.start_date)}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500">Due date</p>
-
-                    <p className="mt-1 font-medium text-slate-900">
-                      {formatDate(project.due_date)}
-                    </p>
-                  </div>
-                </div>
-              </article>
-            ))}
+              </Link>
+            )}
           </div>
-        )}
+        </div>
       </section>
     </main>
   );
