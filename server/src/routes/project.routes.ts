@@ -196,6 +196,41 @@ router.post(
 const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),
 });
+router.get(
+  "/team-members",
+  authorize("ADMIN", "PROJECT_MANAGER"),
+  async (_request, response) => {
+    try {
+      const teamMembersResult = await pool.query(
+        `
+          SELECT
+            id,
+            name,
+            email,
+            role,
+            status
+          FROM users
+          WHERE role = 'TEAM_MEMBER'
+            AND status = 'ACTIVE'
+          ORDER BY name ASC
+        `
+      );
+
+      return response.status(200).json({
+        success: true,
+        users: teamMembersResult.rows,
+      });
+    } catch (error) {
+      console.error("Unable to load team members:", error);
+
+      return response.status(500).json({
+        success: false,
+        message: "Unable to load team members",
+      });
+    }
+  }
+);
+
 
 router.post(
   "/:projectId/members",
