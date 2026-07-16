@@ -6,6 +6,7 @@ import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { testDatabaseConnection } from "./lib/db";
 import authRoutes from "./routes/auth.routes";
+import userRoutes from "./routes/user.routes";
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ const authenticationLimiter = rateLimit({
 });
 
 app.use("/api/auth", authenticationLimiter, authRoutes);
+app.use("/api/users", userRoutes);
 
 app.get("/api/health", (_request: Request, response: Response) => {
   response.status(200).json({
