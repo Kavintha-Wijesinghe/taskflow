@@ -8,6 +8,7 @@ import { testDatabaseConnection } from "./lib/db";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
 import projectRoutes from "./routes/project.routes";
+import taskRoutes from "./routes/task.routes";
 
 dotenv.config();
 
@@ -40,6 +41,7 @@ const authenticationLimiter = rateLimit({
 app.use("/api/auth", authenticationLimiter, authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/tasks", taskRoutes);
 
 app.get("/api/health", (_request: Request, response: Response) => {
   response.status(200).json({
